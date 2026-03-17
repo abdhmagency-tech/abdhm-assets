@@ -1,0 +1,75 @@
+import cv2
+import mediapipe as mp
+import csv
+import time
+
+# Initialisation de MediaPipe Pose
+model_path = 'pose_landmarker_lite.task'
+BaseOptions = mp.tasks.BaseOptions
+PoseLandmarker = mp.tasks.vision.PoseLandmarker
+PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
+VisionRunningMode = mp.tasks.vision.RunningMode
+
+options = PoseLandmarkerOptions(
+    base_options=BaseOptions(model_asset_path=model_path),
+    running_mode=VisionRunningMode.VIDEO,
+    min_pose_detection_confidence=0.5,
+    min_pose_presence_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
+landmarker = PoseLandmarker.create_from_options(options)
+mp_drawing = mp.tasks.vision.drawing_utils
+
+# Capture vidéo (caméra par défaut)
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("T'as même pas de caméra, pauvre cloche ?")
+    exit()
+
+# Fichier CSV pour enregistrer les mouvements
+csv_file = open('mouvements.csv', 'w', newline='')
+csv_writer = csv.writer(csv_file)
+# En-tête avec les 33 landmarks (chacun : x, y, z, visibilité)
+header = []
+for landmark in mp.tasks.vision.PoseLandmark:
+    header.extend([f"{landmark.name}_x", f"{landmark.name}_y", f"{landmark.name}_z", f"{landmark.name}_v"])
+csv_writer.writerow(header)
+
+print("Appuie sur 'q' pour arrêter, enculé.")
+
+timestamp = 0
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Traitement de l'image
+    image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
+    result = landmarker.detect_for_video(mp_image, timestamp)
+    timestamp += 33  # approx 30 fps
+
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    if result.pose_landmarks:
+        # Dessine les points sur l'image
+        mp_drawing.draw_landmarks(image, result.pose_landmarks[0], mp.tasks.vision.PoseLandmarksConnections)
+
+        # Récupère les coordonnées
+        landmarks = result.pose_landmarks[0]
+        row = []
+        for lm in landmarks:
+            row.extend([lm.x, lm.y, lm.z, lm.visibility])
+        csv_writer.writerow(row)
+
+    cv2.imshow('Capture de mouvements', image)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+landmarker.close()
+cap.release()
+csv_file.close()
+cv2.destroyAllWindows()
+print("Mouvements enregistrés dans mouvements.csv, casse-toi maintenant.")
